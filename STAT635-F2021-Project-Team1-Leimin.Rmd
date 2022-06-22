@@ -1,0 +1,461 @@
+---
+title: 'Final Project: Use of Generalized Linear Models (GLM) on Cancer Data'
+author: "Timofei Biziaev 30073217, Leimin Gao 30125045, Seonguk David Yeom 30017603"
+date: '2021 12 11 '
+output:
+  pdf_document:
+    extra_dependencies:
+    - bbm
+    - xcolor
+    toc: yes
+  html_notebook:
+    toc: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    includes:
+      extra_dependencies:
+      - bbm
+      - xcolor
+      in_header: ../custom2.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=10, fig.height=6) 
+```
+
+```{r, include = F, message= F, warning = F}
+library(ggplot2)
+library(ggpubr)
+data1 = read.csv("Mortality_1988_2013.csv")
+data1$ID = as.character(data1$ID)
+data1$Age = as.factor(data1$Age)
+data1$Sex = as.factor(data1$Sex)
+data1$Count = as.numeric(gsub(",", "", data1$Count))
+levels(data1$Age) = c("0-19","20-29","30-39","40-49","50-59","60-69","70-79","80+")
+data1$Age = as.numeric(data1$Age)
+
+
+data2 = read.csv("data.csv")
+
+data2$cohort  = as.factor(data2$cohort)
+data2$sample  = as.factor(data2$sample)
+data2$sex  = as.factor(data2$sex)
+data2$stage  = as.factor(data2$stage)
+data2$diagnosis  = as.factor(data2$diagnosis)
+summary(data2)
+
+
+
+```
+
+\pagebreak
+
+
+
+# 1. Abstract
+
+
+# 2. Introduction
+
+In this project we perform two generalized linear models on two different dataset, one is about Canadian cancer-specific mortality rate and another one is about pancreatic cancer. We present the use of GLMs, specifically Poisson regression analysis and multinomial regression analysis. 
+
+It is estimated that about two in five Canadians will develop cancer in their lifetime. Moreover, one in four will eventually die from cancer. In 2021 alone, it is expected that 229,200 Canadians will be diagnosed with cancer and 84,600 will die from the disease. Cancer is, so far, the leading cause of death among Canadians. It is apparent that the cancer mortality rate is related to gender or age. It has been brought to our attention that the mortality rate might be related to a year of the day as we are able to deal with more types of deadly cancers with medical technology improved. To figure out this relationship, we analyze it with Poisson models to see if age, gender, and year contribute to the mortality rate. Along with the analysis, we expect that it is possible to project the Canadian cancer-specific mortality rate in upcoming years that are not recorded in our dataset and compare it with the actual mortality rate or a projection present by Canadian Cancer Statistics.
+
+Pancreatic cancer is an extremely deadly type of cancer in which the five-year survival rate is less than 10%. However, if the cancer is caught early, the odds of survival are much better. This cancer usually does not show any symptoms until the cancer is spread throughout the body. Thus, a diagnostic test to identify people with pancreatic cancer could be enormously helpful to increase the odds of survival on cancer. Our main purpose is to assess the usefulness of urinary biomarkers in making accurate predictions on the diagnosis of cancer. 
+
+
+
+# 3. Data Collection
+
+We collect the first dataset from Canadian Cancer Statistics. This dataset records death counts for all cancers by age group and gender from 1988 to 2013. Age group is a categorical variable with 8 factors where the first age group is in a range of 0 to 19 years old, the second one is in 20-29, and up to 8th groups where it represents people who are older than 80. For the gender variable, there are only two factors; male and female. Therefore we are able to obtain the death count for 416 cases (8 age groups $\times$ 2 genders $\times$ 26 years). There are some problems that would potentially cause problems when we move to analysis.  First, since the unit for the rate is per 100,000 we have decimal numbers with our death count, which violates one of the assumptions for Poisson regression analysis. To resolve this potential issue, We decide to change the unit to per 1 million to make all decimals integer value. Another potential issue that we would like to resolve is that this dataset does not specify the exact age of an individual's death. This categorizes their death into groups, so we would need seven dummy variables only for the age group. This might lead to loss of information and also age group has ordinal property, this might cause high multicollinearity. To deal with these issues, the age group is treated as continuous in this project and we believe such a change would improve our model fitting also prevent the loss of information because age has a continuity property. For simplicity, the age group is converted into 1 to 8 as 1 represents the first age group, 2 represents the second group so on.
+
+The second dataset about pancreatic cancer is from an open-access paper published December 10, 2020, at the journal PLOS Medicine. They gather a series of biomarkers from the urine of three groups of patients: Healthy, non-cancerous pancreatic condition, and pancreatic cancer condition. They also observe personal information such as age, sex, their origin, whether they have previously used samples or newly added samples. Our goal for this project is to perform analysis based on the multinomial regression analysis and make an accurate prediction based on their personal and biomarker information. This dataset is not completed as it contains missing values in some specific columns that are relevant to the cancerous cases, for instant, blood plasma level or stage indicators are measured for the patients with cancer only. Moreover, one of the biomarkers is only assessed in partial patients. Due to this missingness, we decide to drop the variables as the proportion of the missing values is at least 30% and focus on those variables, which are assessed in all patients. Although we do not have much problem with the dataset itself as it has three levels of diagnosis and numeric biomarkers, we presume the prediction rate would not be as excellent as other analyses in the first dataset as biomarkers are not easy to interpret and contain much more information.
+
+# 4. Methodology
+
+## 4.1 Poisson Regression Analysis on Canadian Cancer-Specific Mortality Rate
+
+
+### 4.1.1 Preliminarly Analysis
+The purpose of illustrations on the preliminary analysis is to give a brief direction for our analysis and to see if age, gender, or year contributes to the mortality rate.
+
+```{r}
+str(data1)
+```
+We have 416 observations and 5 variables, ID, age group, sex, year, and death count. Gender is treated as a factor with two levels and age, year, and count are treated as continuous variables although age group is recorded as a categorical factor. Our response is Count, which is a death count per 1 million Canadian within a specific group by age, gender, and year. There is no missing value in our dataset. Our interest is the death count and how other variables, such as gender, age group, or year contribute to the death count.
+
+```{r, echo=F, message=F}
+qplot(data1$Count, geom="histogram", xlab = "Death count per 1 million")
+```
+
+Based on the histogram, it is shown that the response is not normally distributed and strongly right-skewed. Most mortality rates are less than 10,000, but several mortality rates higher than 20,000 are also observed.
+
+```{r,echo = F, message = F}
+a1 = ggplot(data1, aes(x = Age, y=Count, fill = Sex, color = Sex)) + geom_point() + geom_smooth()
+a2= ggplot(data1, aes(x = Year, y=Count, fill = Age,color = Age))+ geom_point() + geom_smooth()
+ggarrange(a1,a2,ncol = 1)
+```
+
+
+The first plot above indicates that the mortality rate tends to significantly increase as Age is greater than 5. They have a positive but non-linear association with each other. Moreover, Gender does not seem to have an effect when an individual is relatively young, but it plays an important role when they get older (older than 60 years old). The second plot indicates there is a very weak, but steady downward trend in the mortality rate over years. It might not be easy to observe the trend as the correlation between Count and Year is really small as -0.036.
+
+From what we have found above, such as the violation of normality assumption on the response, the fact that the response is an integer, and the associations among these variables, we perform a Poisson regression analysis for the Canadian cancer-specific mortality rate with utilizing age, gender, and year as our initial explanatory variables.
+
+
+### 4.1.2 Main effects Model fitting
+```{r}
+## Prepare dataset for model fitting.
+data = read.csv("Mortality_1988_2013.csv")
+data$Count = as.integer(data$Count)
+data$Sex = as.factor(data$Sex)
+
+## Transform Age from categorical variable to continuous variable.
+library(dplyr)
+data1=data %>%
+  mutate(age2 = case_when(
+    endsWith(Age, "19") ~ 1,
+    endsWith(Age, "29") ~ 2,
+    endsWith(Age, "39") ~ 3,
+    endsWith(Age, "49") ~ 4,
+    endsWith(Age, "59") ~ 5,
+    endsWith(Age, "69") ~ 6,
+    endsWith(Age, "79") ~ 7,
+    endsWith(Age, "+") ~ 8,
+    ))
+data1$Age=data1$age2
+data1=subset(data1,select=c("Age","Sex","Year","Count"))
+head(data1)
+```
+```{r}
+m1 = glm(Count ~ Age + Sex + Year, family = poisson(link = "log"), data=data1)
+summary(m1)
+```
+```{r}
+## Compute robust standard error
+library("sandwich")
+library("lmtest")
+coeftest(m1, vcov = sandwich)
+```
+```{r}
+## Compute 95% confidence intervals of estimation of coefficients.
+library("jtools")
+summ(m1,confint = TRUE,robust = "HC1")
+```
+```{r}
+m1_sum1 = summary(m1)
+m1_sum2 = coeftest(m1, vcov = sandwich)
+m1_sum3 = summ(m1,confint = TRUE,robust = "HC1")
+```
+
+```{r}
+library(ggpubr)
+library(knitr)
+m1.con_est = m1_sum1$coefficients[, 1]
+m1.con_se = m1_sum1$coefficients[, 2]
+m1.con_rbse = m1_sum2[, 2]
+m1.con_pv = m1_sum1$coefficients[, 4]
+m1.con_LL = m1_sum3$coeftable[, 2]
+m1.con_UL = m1_sum3$coeftable[, 3]
+m1.con<-cbind(m1.con_est, m1.con_se,m1.con_rbse, m1.con_pv, m1.con_LL, m1.con_UL)
+colnames(m1.con) = c("estimation","Std. Error","Robust.Std. Error","P_Value","LL","UL")
+rownames(m1.con) = c("intercept","Age","Sex_Male","Year")
+m1.con%>%
+kable(booktabs = TRUE,
+caption =c("Results from Main Effects Model"))%>%
+kable_styling(latex_options = "HOLD_position")
+```
+The poisson regression model with three main effects we got is: $\log(\hat{\mu})=17.23+0.7891 \times x_1+0.5054\times x_2 -0.0069\times x_3$, where $x_1$ is Age, $x_2$ is indicator variable for Male, and $x_3$ is Year. According to the table above, The P-Value all are much smaller than 0.05, which means that the Wald tests for all variables  are significant and we should reject the null hypothesis:$H_0: \beta_i=0$. It shows that all of variables play important roles in the mortality of Cancer. Besides that, it indicates that poisson regression model is good choice for this dataset by comparing the robust standard error and standard error. The 95% confidence intervals for all estimations are pretty narrow and McFadden's pseudo-R2 squared is 0.98 which is close to 1, indicating the main effects model has a very good predictive ability.
+
+### 4.1.3 Checking two way and three way interaction terms
+```{r}
+## add Age*Sex 
+Inter_MAS = glm(Count ~ Age + Sex + Year + Age*Sex, family = poisson(link = "log"), data=data1)
+
+## add Age*Year 
+
+Inter_MAY = glm(Count ~ Age + Sex + Year + Age*Year, family = poisson(link = "log"), data=data1)
+
+## add Sex*Year 
+Inter_MSY = glm(Count ~ Age + Sex + Year + Sex*Year, family = poisson(link = "log"), data=data1)
+
+## add Age*Sex*Year
+Inter_MASY = glm(Count ~ Age + Sex + Year + Age*Sex*Year, family = poisson(link = "log"), data=data1)
+```
+
+Use likelihood ratio test to compare interaction models with main effects model
+
+```{r}
+# test Age*Sex
+loglik1=logLik(m1)
+loglik_AS = logLik(Inter_MAS)
+Lrstat_AS = 2*(loglik_AS-loglik1)
+P_Value_AS=pchisq(Lrstat_AS, df = 1,lower.tail = F)
+cat("the P_Value of likelihood ratio test is", P_Value_AS, "\n")
+```
+
+```{r}
+# test Age*Year
+loglik_AY = logLik(Inter_MAY)
+Lrstat_AY = 2*(loglik_AY-loglik1)
+P_Value_AY=pchisq(Lrstat_AY, df = 1,lower.tail = F)
+cat("the P_Value of likelihood ratio test is",P_Value_AY, "\n")
+```
+
+
+```{r}
+# test Year*Sex
+loglik_SY = logLik(Inter_MSY)
+Lrstat_SY = 2*(loglik_SY-loglik1)
+P_Value_SY=pchisq(Lrstat_SY, df = 1,lower.tail = F)
+cat("the P_Value of likelihood ratio test is", P_Value_SY, "\n")
+```
+
+```{r}
+# test Age*Year*Sex
+loglik_ASY = logLik(Inter_MASY)
+Lrstat_ASY = 2*(loglik_ASY-loglik1)
+P_Value_ASY=pchisq(Lrstat_ASY, df = 1,lower.tail = F)
+cat("the P_Value of likelihood ratio test is", P_Value_ASY, "\n")
+```
+
+```{r}
+LRT_inter_Stat = rbind(Lrstat_AS,Lrstat_AY,Lrstat_SY,Lrstat_ASY)
+LRT_inter_P_value = rbind(P_Value_AS,P_Value_AY,P_Value_SY,P_Value_ASY)
+LRT_res = rbind("significant","significant","significant","significant")
+LRT.con<-cbind(LRT_inter_Stat,LRT_inter_P_value,LRT_res)
+colnames(LRT.con) = c("LRT-statistics","LRT-P_Values","Results")
+rownames(LRT.con) = c("Age*Sex","Age*Year","Sex*Year","Age*Sex*Year")
+LRT.con%>%
+kable(booktabs = TRUE,
+caption =c("Results from Likelihood ratio tests for two-way and three-way interaction terms"))%>%
+kable_styling(latex_options = "HOLD_position")
+```
+With hypothesis: $H_0:\beta_{ijk}=0$ $VS$ $H_1:\beta_{ijk} \neq 0$, we performed likelihood ratio test for all two-way and three way interaction terms. The result show that all test are significant we should reject null hypothesis. Any interaction term can't improve main effects model very well so we will keep checking the goodness of fit of main effects model.
+
+### 4.1.4 Checking the goodness of fit of main effects model 
+```{r}
+##Reduced model
+m_min = glm(Count ~ 1, family = poisson(link = "log"), data=data1)
+```
+
+
+```{r}
+## Likelihood ratio test
+loglik2=logLik(m_min)
+loglik1=logLik(m1)
+stat=2*(loglik1-loglik2)
+LR_P_Value=1-pchisq(stat, df = 3)
+cat("the P_Value for likelihood ratio test is", LR_P_Value, "\n")
+```
+
+```{r}
+#Pseudo R2
+R_2_m1 = (loglik2 - loglik1)/loglik2
+cat("Pseudo R2 is ", R_2_m1,"\n")
+```
+```{r}
+##Pearson's Chi square
+pred_count = exp(predict(m1))
+chisq.test(data1$Count,pred_count)
+```
+
+
+
+```{r}
+## AIC
+c1=AIC(m1)
+c2=AIC(m_min)
+cat("full modle's AIC is ", c1,"\n")
+cat("reduced modle's AIC is ", c2,"\n")
+```
+```{r}
+m1_gof = cbind(LR_P_Value,R_2_m1,0.2602,m1$aic)
+null_model = cbind("-","-","-",m_min$aic)
+Gof_m1 = rbind(m1_gof,null_model)
+colnames(Gof_m1)=c("LR_P-value","Pseudo R2","Pearson's chi^2","AIC")
+rownames(Gof_m1)=c("Main Effects Modle","Null Model")
+Gof_m1%>%
+kable(booktabs = TRUE,
+caption =c("Goodness of fit of Main Effects Model"))%>%
+kable_styling(latex_options = "HOLD_position")
+```
+
+```{r}
+## Residual
+res.pearson <- residuals(m1, type="pearson")
+## get QQ plot of residuals of r_i
+qqnorm(res.pearson )
+qqline(res.pearson )
+```
+In the table of goodness of fit of main effects model, we can see, the likelihood ratio test is 0. A common significance level to use is .05. Under that significance level, we would reject the null hypothesis and conclude that we should use the more complex model, which is main effects model. Pseudo R2 is 0.98, which is close to 1 and shows the main effects model is good fit. The p-value of the Pearson's $\chi^2$ test is 0.2602, which is greater than the significance level alpha = 0.05. We can conclude that the observed proportions are not significantly different from the expected values. AIC of main effects model is 77074, which is much smaller than the AIC(3669481) of null model. Last but not least, QQ plots indicates the residual of main effects model follows normal distribution. In a word, all of tests prove that main effects model is good fit.
+
+### 4.1.4.1 Checking the goodness of fit of model containing all interaction terms 
+
+In order to imporve the current main effects model, we also check the model with interaction terms (we will call it as maximum model in the following part of this report.: $Age*Sex, Age*Year, Sex*Year, Age*Sex*Year$.
+```{r}
+m2 = glm(Count ~ Age*Sex*Year, family = poisson(link = "log"), data=data1)
+```
+
+
+```{r}
+## Likelihood ratio test
+loglik2=logLik(m_min)
+loglik3=logLik(m2)
+stat=2*(loglik3-loglik2)
+P_Value_m2=1-pchisq(stat, df = 7)
+
+#Pseudo R2
+R_2_m2 = (loglik2 - loglik3)/loglik2
+
+##Pearson's Chi square
+pred_count_m2 = exp(predict(m2))
+chisq.test(data1$Count,pred_count_m2)
+
+m2_gof = cbind(P_Value_m2,R_2_m2,0.2602,m2$aic)
+m1_gof = cbind(LR_P_Value,R_2_m1,0.2602,m1$aic)
+null_model = cbind("-","-","-",m_min$aic)
+Gof_m2 = rbind(m2_gof,m1_gof,null_model)
+colnames(Gof_m2)=c("LR_P-value","Pseudo R2","Pearson's chi^2","AIC")
+rownames(Gof_m2)=c("Maximum Model","Main Effects Modle","Null Model")
+Gof_m2%>%
+kable(booktabs = TRUE,
+caption =c("Goodness of fit of Model with all inter-terms"))%>%
+kable_styling(latex_options = "HOLD_position")
+
+## Residual
+res.pearson <- residuals(m2, type="pearson")
+## get QQ plot of residuals of r_i
+qqnorm(res.pearson )
+qqline(res.pearson )
+```
+Here, we got a model: $$\log(\hat{\mu})= 69.48-7.891 \times x_1+23.01\times x_2 -0.03\times x_3-0.87\times x_1x_2+0.004\times x_1x_3-0.011\times x_2x_3+0.0005\times x_1x_2x_3$$
+From the table of "Goodness of fit of Model with all inter-terms", maximum model perform as good as main effects model on likelihood ratio test, Pearson's $\chi^2$ test and they have similar QQ plots. Meanwhile, we found maximum model has higher Pseudo $R^2$ and lower AIC, even the differences are not noteworthy.
+
+### 4.1.5 Predictions
+#### Fit original data and compare predictions and observations
+```{r}
+## Fit the original data (1988~2013)
+y = predict(m1,newdata=data1)
+eastimates=exp(y)
+plot(eastimates,data1$Count,pch = 2,
+     bg = "red",
+     col = "blue", 
+     cex = 1,      
+     lwd = 1)
+lines(0:25000, 0:25000, lwd = 3, col = "red")
+```
+This plot shows the main effects model had a good ability of prediction on data from 1988 to 2013.
+
+
+#### Fit data in the year of 2014 and compare the root mean square error(RMSE) of predictions and observations VS projected and observations
+Note: Observations are real data in 2014 and projected data are predicted by the organization based on mortality count by sex, age and year over several years. Both of them are provided by Canadian Cancer Statistics. 
+```{r}
+#import test data
+
+data_2014 = read.csv("test_data.csv")
+
+dataTest=data_2014 %>%
+  mutate(age2 = case_when(
+    endsWith(Age, "19") ~ 1,
+    endsWith(Age, "29") ~ 2,
+    endsWith(Age, "39") ~ 3,
+    endsWith(Age, "49") ~ 4,
+    endsWith(Age, "59") ~ 5,
+    endsWith(Age, "69") ~ 6,
+    endsWith(Age, "79") ~ 7,
+    endsWith(Age, "+") ~ 8,
+    ))
+dataTest$Age=dataTest$age2
+dataTest=subset(dataTest,select=c("Age","Sex","Year","Count"))
+```
+
+
+```{r}
+## Predict mortality count in 2014 with main effects model
+y1 = predict(m1,newdata=dataTest)
+y1=exp(y1)
+## Predict mortality count in 2014 with maximum model
+y2 = predict(m2,newdata=dataTest)
+y2 = exp(y2)
+```
+
+
+```{r}
+## import project data
+project = read.csv("2014_Projected.csv")
+```
+```{r}
+## Calculate RMSE of predictions of main effects model and observations 
+r1 = sqrt(sum((y1-dataTest$Count)^2)) 
+
+## Calculate RMSE of predictions of maximum model and observations 
+r2 = sqrt(sum((y2-dataTest$Count)^2))
+
+## Calculate RMSE of predictions of projected data and observations 
+r3 = sqrt(sum((project$Count-dataTest$Count)^2)) 
+
+rs = cbind(r2,r1,r3)
+RMSE= rs
+colnames(RMSE)=c("maximum model VS real", "main effects model VS real", "projected data VS real")
+rownames(RMSE)=c("RMSE")
+RMSE%>%
+kable(booktabs = TRUE,
+caption =c("RMSE comparison"))%>%
+kable_styling(latex_options = "HOLD_position")
+```
+By comparing the RMSE, we can see our models performs much better than projected data, which is predicted by the relative organization. Specifically, maximum model can give a preciser prediction than main effects model as the RMSE for maximum model VS real is 4049 and for main effects model VS real is 5082. ALL in all, we suggest applying the maximum model to give much more accurate predictions.
+
+
+
+## 4.2 Multinomial Regression Analysis on Pancreatic Cancer
+
+### 4.2.1 Preliminarly Analysis
+
+The original dataset for the pancreatic cancer contains 14 variables with 590 patients, but some of them contain several missing values or are irrelevant to our analysis.
+
+```{r}
+str(data2)
+```
+We decide to drop cohort, sample, stage, benign, plasma, and REG1A because cohort and sample are assumed to be unrelated information for our analysis, stage, plasma, benign, and REG1A assessed only for partial of patients. The proportion of the missing values is at least 30% for these variables. In the end, age, gender, and the four urinary biomarkers are left, and we have a completed dataset. The four urinary biomarkers are 1) creatinine, a urinary biomarker of kidney function, 2) LYVE1, urinary levels of lymphatic vessel endothelial hyaluronan receptor 1 that sometimes plays a role in a tumour, 3) REG1B, urinary levels of a protein that may be associated with pancreas regeneration, and 4) TFF1, urinary levels of trefoil factor 1 that may be related to regeneration and repair of the urinary tract.  Our response is diagnosis with levels 1,2,3 and they represent healthy, benign, and non-cancerous respectively.
+
+
+```{r, echo = F}
+ggplot(data2,aes(x=diagnosis, fill = sex))+ geom_bar()
+```
+
+Based on the histogram each diagnosis has a fairly equal number of observations and there are more females in healthy cases, but there are more males in benign and cancerous cases. This suggests that gender might play a role in diagnosing cancer because the odds of being male are increasing as it moves from healthy to cancerous.
+
+
+```{r, echo = F, message = F}
+b1=ggplot(data2, aes(x =age, fill = diagnosis)) + geom_histogram(position = "identity", alpha = 0.5)
+b2=ggplot(data2, aes(x =creatinine, fill = diagnosis)) + geom_histogram(position = "identity", alpha = 0.5)
+b3=ggplot(data2, aes(x =LYVE1, fill = diagnosis)) + geom_histogram(position = "identity", alpha = 0.5)
+b4=ggplot(data2, aes(x =REG1B, fill = diagnosis)) + geom_histogram(position = "identity", alpha = 0.5)
+b5=ggplot(data2, aes(x =TFF1, fill = diagnosis)) + geom_histogram(position = "identity", alpha = 0.5)
+ggarrange(b1,b2,b3,b4,b5)
+```
+
+Next, a set of histograms on age and biomarkers over the three diagnoses is present. As one can see, diagnosis 3 tends to have a higher value on biomarkers and tends to come from elder people. This gives us a brief idea that there is an association between diagnosis and these variables. 
+
+Based on what we have found that the response is three nominal level; healthy, benign, and cancerous, we decide to analyze it with multinomial regression method. Moreover, from what illustrations suggest we fit our initial model with those four biomarkers and personal information gender and age.
+
+
+# 5. Conclusion
+## 5.1 Conclusion on Poisson Regression Analysis on Canadian Cancer-Specific Mortality Rate
+By fitting poisson regression model with Canadian Cancer-Specific Mortality Rate from 1988 to 2013, we got the main effects model:$\log(\hat{\mu})=17.23+0.7891 \times x_1+0.5054\times x_2 -0.0069\times x_3$, where $x_1$ is Age, $x_2$ is indicator variable for Male, and $x_3$ is Year. Wald test shows the three variables all have important effect on cancer mortality rate. Two-way and three-wat interaction terms are rejected because likelihood ratio tests for them are significant. In order to improve the main effects model, we introduce maximum model:  $$\log(\hat{\mu})= 69.48-7.891 \times x_1+23.01\times x_2 -0.03\times x_3-0.87\times x_1x_2+0.004\times x_1x_3-0.011\times x_2x_3+0.0005\times x_1x_2x_3$$. After checking the goodness of fit for main effects model and maximum model, we find the Pearson's \chi^2 test, likelihood ratio test, Pseudo R2 and residual normality showing the two models have good fits. More importantly, the prediction part prove that both models can give better predictions than the relative organization and maximum model is the best, which implies that the maximum model could give a reliable prediction for the future Canadian cancer-specific mortality rate. More specifically, the model is interpretative. Age plays an important role on the cancer-specific mortality rate. There is slightly difference between male and female. Male has a higher probability of dying of Cancer than female. There is a very weak downward trend on the mortality rate over time. All of these insights from the model we got are all consistent our assumptions.
+# 6. Reference
+
+
+# 7. Appendix
+
+```{r echo = F}
+a2=ggplot(data2,aes(x=diagnosis, y=age, group = diagnosis,color = diagnosis))+geom_boxplot()
+a3=ggplot(data2,aes(x=diagnosis, y=creatinine, group = diagnosis,color = diagnosis))+geom_boxplot()
+a4=ggplot(data2,aes(x=diagnosis, y=LYVE1, group = diagnosis,color = diagnosis))+geom_boxplot()
+a5=ggplot(data2,aes(x=diagnosis, y=REG1B, group = diagnosis,color = diagnosis))+geom_boxplot()
+a6=ggplot(data2,aes(x=diagnosis, y=TFF1, group = diagnosis,color = diagnosis))+geom_boxplot()
+ggarrange(a2,a3,a4,a5,a6)
+
+```
